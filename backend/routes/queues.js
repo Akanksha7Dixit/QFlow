@@ -34,7 +34,6 @@ router.get('/:id/public', async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
-
 // POST create queue
 router.post('/', protect, async (req, res) => {
   try {
@@ -44,7 +43,6 @@ router.post('/', protect, async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
-
 // PUT update queue
 router.put('/:id', protect, async (req, res) => {
   try {

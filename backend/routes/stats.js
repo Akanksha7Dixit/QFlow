@@ -8,7 +8,6 @@ router.get('/dashboard', protect, async (req, res) => {
   try {
     const queues = await Queue.find({ owner: req.user._id }).select('_id')
     const queueIds = queues.map((q) => q._id)
-
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 

@@ -9,7 +9,7 @@ router.get('/queue/:queueId', protect, async (req, res) => {
     const { status, limit = 50 } = req.query
     const filter = { queue: req.params.queueId }
     if (status) filter.status = status
-
+    
     const tickets = await Ticket.find(filter)
       .sort({ priority: -1, position: 1 })
       .limit(parseInt(limit))
