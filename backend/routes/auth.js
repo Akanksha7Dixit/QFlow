@@ -7,6 +7,7 @@ const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '7d' })
 
 // POST /api/auth/register
+
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role } = req.body
