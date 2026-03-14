@@ -24,15 +24,13 @@ const protect = async (req, res, next) => {
 }
 
 const adminOnly = (req, res, next) => {
-  if (req.user?.role === 'admin') return next()
+  if (req.user?.role === 'admin') return next()  
   res.status(403).json({ message: 'Admin access required' })
 }
-
 
 
 const agentOrAdmin = (req, res, next) => {
   if (['admin', 'agent'].includes(req.user?.role)) return next()
   res.status(403).json({ message: 'Agent or Admin access required' })
 }
-
 module.exports = { protect, adminOnly, agentOrAdmin }
