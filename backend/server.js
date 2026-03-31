@@ -196,7 +196,9 @@ mongoose
       console.log(`[SERVER] QueueFlow running on port ${PORT}`);
     });
   })
+
   .catch((err) => {
     console.error('[DB] Connection failed:', err.message);
     process.exit(1);
+    
   });
