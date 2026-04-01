@@ -4,6 +4,8 @@
 // //for changing dnsservers to avoid dns issues in some environments
 // require("node:dns").setServers(["1.1.1.1", "8.8.8.8"]);
 
+
+//this is a basic express server with socket.io
 // const express = require('express')
 // const http = require('http')
 // const { Server } = require('socket.io')
