@@ -1,128 +1,133 @@
+const router = require('express').Router()
 const jwt = require('jsonwebtoken')
 const User = require('../models/User')
+const { protect } = require('../middleware/auth')
 
-/*
- * Authenticate a request using JWT.
- */
-const protect = async (req, res, next) => {
-  let token
+const signToken = (id) => {
+  return jwt.sign(
+    { id },
+    process.env.JWT_SECRET || 'fallback_secret',
+    { expiresIn: '7d' }
+  )
+}
 
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith('Bearer ')
-  ) {
-    token = req.headers.authorization.split(' ')[1]
-  }
+// ============================================================
+// PUBLIC REGISTRATION
+// Public registration ALWAYS creates a PATIENT.
+// The client cannot choose the role.
+// ============================================================
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body
 
-  if (!token) {
-    return res.status(401).json({
-      message: 'Not authorized — no token',
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: 'Name, email and password are required'
+      })
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        message: 'Password must be at least 6 characters'
+      })
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    const exists = await User.findOne({
+      email: normalizedEmail
+    })
+
+    if (exists) {
+      return res.status(400).json({
+        message: 'Email already registered'
+      })
+    }
+
+    // IMPORTANT:
+    // Never accept role from req.body.
+    // Every public registration is a patient.
+    const user = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      password,
+      role: 'patient'
+    })
+
+    const token = signToken(user._id)
+
+    res.status(201).json({
+      token,
+      user
+    })
+  } catch (err) {
+    console.error('[AUTH REGISTER]', err)
+
+    res.status(500).json({
+      message: err.message || 'Registration failed'
     })
   }
+})
 
+// ============================================================
+// LOGIN
+// ============================================================
+router.post('/login', async (req, res) => {
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'fallback_secret'
-    )
+    const { email, password } = req.body
 
-    const user = await User.findById(decoded.id).select(
-      '-password'
-    )
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required'
+      })
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    const user = await User.findOne({
+      email: normalizedEmail
+    })
 
     if (!user) {
       return res.status(401).json({
-        message: 'User not found',
+        message: 'Invalid credentials'
       })
     }
 
     if (!user.isActive) {
       return res.status(403).json({
-        message: 'This account has been deactivated',
+        message: 'Your account has been deactivated'
       })
     }
 
-    req.user = user
+    const passwordMatches = await user.comparePassword(password)
 
-    next()
-  } catch (error) {
-    return res.status(401).json({
-      message: 'Not authorized — invalid token',
+    if (!passwordMatches) {
+      return res.status(401).json({
+        message: 'Invalid credentials'
+      })
+    }
+
+    const token = signToken(user._id)
+
+    res.json({
+      token,
+      user
+    })
+  } catch (err) {
+    console.error('[AUTH LOGIN]', err)
+
+    res.status(500).json({
+      message: err.message || 'Login failed'
     })
   }
-}
+})
 
-/*
- * Admin-only middleware.
- */
-const adminOnly = (req, res, next) => {
-  if (req.user?.role === 'admin') {
-    return next()
-  }
+// ============================================================
+// CURRENT USER
+// ============================================================
+router.get('/me', protect, (req, res) => {
+  res.json(req.user)
+})
 
-  return res.status(403).json({
-    message: 'Admin access required',
-  })
-}
-
-/*
- * Doctor OR admin.
- */
-const doctorOrAdmin = (req, res, next) => {
-  if (
-    ['admin', 'doctor'].includes(req.user?.role)
-  ) {
-    return next()
-  }
-
-  return res.status(403).json({
-    message: 'Doctor or Admin access required',
-  })
-}
-
-/*
- * Any authenticated clinic user.
- */
-const authenticatedUser = (req, res, next) => {
-  if (req.user) {
-    return next()
-  }
-
-  return res.status(401).json({
-    message: 'Authentication required',
-  })
-}
-
-/*
- * Generic role middleware.
- *
- * Usage:
- *
- * authorize('admin')
- * authorize('admin', 'doctor')
- */
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        message: 'Authentication required',
-      })
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        message: 'Access denied',
-      })
-    }
-
-    next()
-  }
-}
-
-module.exports = {
-  protect,
-  adminOnly,
-  doctorOrAdmin,
-  authenticatedUser,
-  authorize,
-}
+module.exports = router

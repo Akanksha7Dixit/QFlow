@@ -80,6 +80,37 @@ router.get(
 )
 
 /*
+ * GET /api/queues/public
+ *
+ * Patient-facing queue directory. Keep this endpoint before /:id/public
+ * so the literal "public" segment is not treated as a queue id.
+ */
+router.get(
+  '/public',
+  async (req, res) => {
+    try {
+      const queues = await Queue.find({ isOpen: true })
+        .select('name description category prefix color avgServiceTime maxCapacity isOpen')
+        .lean()
+
+      const enriched = await Promise.all(
+        queues.map(async (queue) => ({
+          ...queue,
+          waitingCount: await Ticket.countDocuments({
+            queue: queue._id,
+            status: 'waiting',
+          }),
+        }))
+      )
+
+      res.json(enriched)
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  }
+)
+
+/*
  * GET /api/queues/:id/public
  *
  * Public endpoint used by kiosk/display.

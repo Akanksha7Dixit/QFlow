@@ -100,7 +100,7 @@ export default function Dashboard() {
               letterSpacing: '0.2em',
               marginBottom: '6px',
             }}>
-              COMMAND CENTER / OVERVIEW
+              TODAY'S CLINIC / OVERVIEW
             </div>
             <h1 style={{
               fontFamily: 'var(--font-display)',
@@ -109,7 +109,7 @@ export default function Dashboard() {
               color: 'var(--text-primary)',
               letterSpacing: '0.1em',
             }}>
-              QUEUE <span style={{ color: 'var(--cyan)', textShadow: 'var(--glow-sm)' }}>CONTROL</span>
+              CLINIC <span style={{ color: 'var(--cyan)' }}>PULSE</span>
             </h1>
             <p style={{
               fontFamily: 'var(--font-mono)',
@@ -117,7 +117,7 @@ export default function Dashboard() {
               color: 'var(--text-muted)',
               marginTop: '6px',
             }}>
-              {queues.length} QUEUES DEPLOYED · OPERATOR: {user?.name?.toUpperCase()}
+              {queues.length} active queues · Welcome back, {user?.name}
             </p>
           </div>
 
@@ -154,7 +154,7 @@ export default function Dashboard() {
               color: 'var(--cyan)',
               marginBottom: '20px',
             }}>
-              TODAY'S THROUGHPUT — HOURLY BREAKDOWN
+              TODAY'S CLINIC ACTIVITY
             </div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
@@ -199,7 +199,7 @@ export default function Dashboard() {
           </div>
 
           <button onClick={fetchData} className="btn btn-ghost btn-sm">
-            ↺ REFRESH
+            Refresh activity
           </button>
         </div>
 

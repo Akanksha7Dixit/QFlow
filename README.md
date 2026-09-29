@@ -71,6 +71,20 @@ npm start
 # App starts on http://localhost:3000
 ```
 
+### 3. Intake AI service
+
+The Node API calls the separate FastAPI service for validated intake extraction. The service has a deterministic fallback, so QueueFlow continues to accept visits when no external model is configured.
+
+```bash
+cd ai-service
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+Set `AI_SERVICE_URL=http://localhost:8000` in the backend environment. Optional `AI_PROVIDER_URL`, `AI_PROVIDER_API_KEY`, and `AI_PROVIDER_MODEL` enable an OpenAI-compatible provider; keys stay in the FastAPI environment and are never sent to React.
+
 ---
 
 ## 🔑 Environment Variables

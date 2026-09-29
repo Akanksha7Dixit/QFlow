@@ -53,6 +53,9 @@ app.use('/api/queues', require('./routes/queues'));
 app.use('/api/tickets', require('./routes/tickets'));
 app.use('/api/stats', require('./routes/stats'));
 
+app.use('/api/users', require('./routes/users'));
+app.use('/api/clinic', require('./routes/clinic'));
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ONLINE', timestamp: new Date(), version: '1.0.0' });
