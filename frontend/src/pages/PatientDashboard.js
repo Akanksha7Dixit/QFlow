@@ -6,12 +6,14 @@ import StatCard from '../components/StatCard'
 import { ArrowRight, ClipboardList, HeartPulse, UserRound } from 'lucide-react'
 
 export default function PatientDashboard() {
+
   const { user } = require('../context/AuthContext').useAuth()
   const [queues, setQueues] = useState([])
   const [ticket, setTicket] = useState(() => JSON.parse(localStorage.getItem('qf_patient_ticket') || 'null'))
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+
     axios.get('/queues/public').then((response) => setQueues(response.data)).catch(() => toast.error('Unable to load departments')).finally(() => setLoading(false))
   }, [])
 
@@ -26,6 +28,7 @@ export default function PatientDashboard() {
 
   const clearTicket = () => { localStorage.removeItem('qf_patient_ticket'); setTicket(null) }
 
+  
   return <Layout><div style={{ padding: '32px', maxWidth: '1400px' }}>
     <div className="clinic-page-header"><div><div className="mono text-muted">PATIENT PORTAL / NEW VISIT</div><h1>Your <span className="text-cyan">Care Journey</span></h1><p className="text-secondary">Choose a department to begin a structured clinic visit.</p></div><div className="badge badge-serving"><HeartPulse size={13} /> PATIENT</div></div>
     <div className="clinic-stat-grid"><StatCard label="OPEN DEPARTMENTS" value={queues.length} icon="◈" color="cyan" /><StatCard label="ACTIVE TICKET" value={ticket?.ticketNumber || '—'} icon="⏱" color="amber" /><StatCard label="PROFILE" value="READY" icon="✓" color="green" /></div>
