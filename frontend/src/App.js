@@ -34,6 +34,7 @@ import AdminOperations from './pages/AdminOperations'
 import PatientCare from './pages/PatientCare'
 import DoctorConsultation from './pages/DoctorConsultation'
 import PatientProfile from './pages/PatientProfile'
+import VisualEffects from './components/VisualEffects'
 
 /*
  * Authentication loading screen.
@@ -333,6 +334,8 @@ export default function App() {
     <AuthProvider>
       <SocketProvider>
         <BrowserRouter>
+
+          <VisualEffects />
 
           <AppRoutes />
 

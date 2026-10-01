@@ -19,8 +19,9 @@ const server = http.createServer(app);
 // ✅ Allowed origins (add your deployed URL)
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'http://localhost:5173',
-  'https://qflow.onrender.com' // 🔥 your deployed URL
+  'https://qflow.onrender.com'
 ];
 
 // ✅ CORS setup
