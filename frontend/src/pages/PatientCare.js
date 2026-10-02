@@ -122,6 +122,22 @@ export default function PatientCare() {
     setNotice('Analyzing intake...')
 
     try {
+      // Retrieve the active queue ticket created from Patient Dashboard.
+      // The ticket object is stored in localStorage after check-in.
+      let activeTicket = null
+
+      try {
+        const storedTicket = localStorage.getItem('qf_patient_ticket')
+
+        if (storedTicket) {
+          activeTicket = JSON.parse(storedTicket)
+        }
+      } catch (storageError) {
+        console.error('Unable to read active patient ticket:', storageError)
+      }
+
+      const ticketId = activeTicket?._id || null
+
       const response = await axios.post('/clinic/visits', {
         ...form,
 
@@ -131,11 +147,14 @@ export default function PatientCare() {
           .map((item) => item.trim())
           .filter(Boolean),
 
-        // IMPORTANT:
         // MongoDB expects department to be an ObjectId.
         // When "Auto-route for review" is selected,
         // send null instead of an empty string.
-        department: form.department || null
+        department: form.department || null,
+
+        // Link this clinical visit to the queue ticket
+        // generated when the patient checked in.
+        ticket: ticketId
       })
 
       setLastExtraction(response.data.aiExtraction)
