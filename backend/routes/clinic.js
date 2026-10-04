@@ -930,6 +930,8 @@ router.patch(
             'patient',
             'name email'
           )
+
+          
           .populate(
             'doctor',
             'name email'
