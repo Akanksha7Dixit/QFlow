@@ -18,6 +18,11 @@ const ticketSchema = new mongoose.Schema(
     position: { type: Number, required: true },
     servedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     notes: { type: String, default: '' },
+    consultation: {
+      notes: { type: String, default: '' },
+      diagnosis: { type: String, default: '' },
+      confirmedAt: { type: Date, default: null },
+    },
     calledAt: { type: Date, default: null },
     servedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },

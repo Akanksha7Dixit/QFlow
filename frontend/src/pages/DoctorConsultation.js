@@ -18,9 +18,43 @@ export default function DoctorConsultation() {
 
   const load = async () => {
     try {
-      const response = await axios.get('/clinic/visits')
-      setVisits(response.data)
-      setSelected((current) => response.data.find((visit) => visit._id === current?._id) || response.data[0] || null)
+      const [visitResponse, queueResponse] = await Promise.all([
+        axios.get('/clinic/visits'),
+        axios.get('/queues')
+      ])
+      const visitRecords = visitResponse.data
+      const queueTickets = await Promise.all(
+        queueResponse.data.map(async (queue) => {
+          const response = await axios.get(`/tickets/queue/${queue._id}`)
+          return response.data
+            .filter((ticket) => ['waiting', 'serving'].includes(ticket.status))
+            .map((ticket) => ({ ...ticket, queueName: queue.name }))
+        })
+      )
+      const linkedTicketIds = new Set(
+        visitRecords
+          .map((visit) => visit.ticket?._id || visit.ticket)
+          .filter(Boolean)
+          .map(String)
+      )
+      const ticketRecords = queueTickets.flat()
+        .filter((ticket) => !linkedTicketIds.has(String(ticket._id)))
+        .map((ticket) => ({
+          ...ticket,
+          recordType: 'ticket',
+          patient: { name: ticket.customer?.name || 'Queue patient' },
+          intake: {
+            chiefComplaint: `${ticket.ticketNumber} · ${ticket.queueName}`,
+            originalText: `Queue check-in for ${ticket.ticketNumber}`,
+          },
+          triage: { level: 'routine' },
+          consultation: ticket.consultation,
+        }))
+      const records = [...visitRecords, ...ticketRecords]
+      setVisits(records)
+      setSelected((current) => records.find(
+        (record) => record._id === current?._id && record.recordType === current?.recordType
+      ) || records[0] || null)
     } catch (error) { toast.error(error.response?.data?.message || 'Unable to load consultations') }
   }
 
@@ -36,11 +70,96 @@ export default function DoctorConsultation() {
   const complete = async () => {
     if (!selected) return
     try {
-      await axios.patch(`/clinic/visits/${selected._id}`, { status: 'completed', consultation: { notes, diagnosis, aiSummary: notes } })
+      if (selected.recordType === 'ticket') {
+        await axios.put(`/tickets/${selected._id}/status`, {
+          consultation: { notes, diagnosis }
+        })
+      } else {
+        await axios.patch(`/clinic/visits/${selected._id}`, {
+          status: 'completed',
+          consultation: { notes, diagnosis, aiSummary: notes }
+        })
+      }
       toast.success('Consultation saved')
-      load()
+      await load()
     } catch (error) { toast.error(error.response?.data?.message || 'Unable to save consultation') }
   }
 
-  return <Layout><div style={{ padding: '32px', maxWidth: '1400px' }}><div className="clinic-page-header"><div><div className="mono text-muted">DOCTOR / CONSULTATION ROOM</div><h1>Clinical <span className="text-cyan">Workspace</span></h1><p className="text-secondary">AI organizes intake; the doctor reviews, corrects, and confirms the record.</p></div><div className="badge badge-serving"><FileText size={13} /> DOCUMENTATION</div></div><div className="consult-grid"><section className="card clinic-panel"><div className="panel-heading"><span>ACTIVE PATIENTS</span><span className="mono text-muted">{visits.length} RECORDS</span></div>{visits.map((visit) => <button className={`queue-select ${selected?._id === visit._id ? 'is-selected' : ''}`} key={visit._id} onClick={() => setSelected(visit)}><span><strong>{visit.patient?.name || 'Patient'}</strong><small>{visit.intake?.chiefComplaint || 'No complaint'} · {visit.status}</small></span><span className="mono text-amber">{visit.triage?.level || 'routine'}</span></button>)}</section><section className="card clinic-panel">{selected ? <><div className="panel-heading"><span>{selected.patient?.name || 'PATIENT'} / INTAKE</span><span className="badge badge-waiting">{selected.triage?.level || 'routine'}</span></div><div className="intake-summary"><p><strong>Original patient entry</strong>{selected.intake?.originalText || selected.intake?.chiefComplaint || 'Not provided'}</p><p><strong>Structured symptoms</strong>{selected.intake?.symptoms?.join(', ') || 'Not provided'}</p><p><strong>History</strong>{selected.intake?.history || 'Not provided'}</p><p><strong>Safety rationale</strong>{selected.triage?.rationale || 'No rationale available'}</p></div><AiIntakeSummary visit={selected} /><div className="panel-heading"><span>CONSULTATION NOTES</span><button type="button" className="btn btn-ghost btn-sm" onClick={suggestSummary}><Sparkles size={14} /> DRAFT SUMMARY</button></div><textarea className="form-input" rows="6" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Document findings and plan" /><input className="form-input consultation-diagnosis" value={diagnosis} onChange={(event) => setDiagnosis(event.target.value)} placeholder="Diagnosis / assessment" /><button className="btn btn-success" onClick={complete}><CheckCircle2 size={15} /> CONFIRM & SAVE VISIT</button></> : <p className="text-muted">No consultation records are waiting.</p>}</section></div></div></Layout>
+  return (
+    <Layout>
+      <div style={{ padding: '32px', maxWidth: '1400px' }}>
+        <div className="clinic-page-header">
+          <div>
+            <div className="mono text-muted">DOCTOR / CONSULTATION ROOM</div>
+            <h1>Clinical <span className="text-cyan">Workspace</span></h1>
+            <p className="text-secondary">AI organizes intake; the doctor reviews, corrects, and confirms the record.</p>
+          </div>
+          <div className="badge badge-serving"><FileText size={13} /> DOCUMENTATION</div>
+        </div>
+        <div className="consult-grid">
+          <section className="card clinic-panel">
+            <div className="panel-heading">
+              <span>ACTIVE PATIENTS</span>
+              <span className="mono text-muted">{visits.length} RECORDS</span>
+            </div>
+            {visits.map((visit) => (
+              <button
+                className={`queue-select ${selected?._id === visit._id && selected?.recordType === visit.recordType ? 'is-selected' : ''}`}
+                key={`${visit.recordType || 'visit'}-${visit._id}`}
+                onClick={() => setSelected(visit)}
+              >
+                <span>
+                  <strong>{visit.patient?.name || 'Patient'}</strong>
+                  <small>{visit.intake?.chiefComplaint || 'No complaint'} · {visit.status}</small>
+                </span>
+                <span className="mono text-amber">{visit.triage?.level || 'routine'}</span>
+              </button>
+            ))}
+          </section>
+          <section className="card clinic-panel">
+            {selected ? (
+              <>
+                <div className="panel-heading">
+                  <span>{selected.patient?.name || 'PATIENT'} / INTAKE</span>
+                  <span className="badge badge-waiting">{selected.triage?.level || 'routine'}</span>
+                </div>
+                <div className="intake-summary">
+                  <p><strong>Original patient entry</strong>{selected.intake?.originalText || selected.intake?.chiefComplaint || 'Not provided'}</p>
+                  <p><strong>Structured symptoms</strong>{selected.intake?.symptoms?.join(', ') || 'Not provided'}</p>
+                  <p><strong>History</strong>{selected.intake?.history || 'Not provided'}</p>
+                  <p><strong>Safety rationale</strong>{selected.triage?.rationale || 'No rationale available'}</p>
+                </div>
+                <AiIntakeSummary visit={selected} />
+                <div className="panel-heading">
+                  <span>CONSULTATION NOTES</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={suggestSummary}>
+                    <Sparkles size={14} /> DRAFT SUMMARY
+                  </button>
+                </div>
+                <textarea
+                  className="form-input"
+                  rows="6"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Document findings and plan"
+                />
+                <input
+                  className="form-input consultation-diagnosis"
+                  value={diagnosis}
+                  onChange={(event) => setDiagnosis(event.target.value)}
+                  placeholder="Diagnosis / assessment"
+                />
+                <button className="btn btn-success" onClick={complete}>
+                  <CheckCircle2 size={15} />
+                  {selected.recordType === 'ticket' ? 'SAVE CONSULTATION' : 'CONFIRM & SAVE VISIT'}
+                </button>
+              </>
+            ) : (
+              <p className="text-muted">No consultation records are waiting.</p>
+            )}
+          </section>
+        </div>
+      </div>
+    </Layout>
+  )
 }

@@ -336,6 +336,7 @@ router.put(
       const {
         status,
         notes,
+        consultation,
       } = req.body
 
       const ticket =
@@ -362,10 +363,20 @@ router.put(
         })
       }
 
-      ticket.status = status
+      if (status) {
+        ticket.status = status
+      }
 
-      if (notes) {
+      if (typeof notes === 'string') {
         ticket.notes = notes
+      }
+
+      if (consultation && typeof consultation === 'object') {
+        ticket.consultation = {
+          notes: consultation.notes ?? ticket.consultation.notes,
+          diagnosis: consultation.diagnosis ?? ticket.consultation.diagnosis,
+          confirmedAt: new Date(),
+        }
       }
 
       if (

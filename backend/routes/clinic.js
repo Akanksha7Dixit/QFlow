@@ -17,7 +17,6 @@ const {
   validateExtraction,
 } = require('../services/aiIntake')
 
-
 /*
  * Deterministic safety triage.
  *
@@ -58,7 +57,6 @@ const triageFromText = (text = '') => {
   }
 }
 
-
 /*
  * Safely convert an optional MongoDB id.
  *
@@ -81,7 +79,6 @@ const normalizeObjectId = (value) => {
 
   return value
 }
-
 
 /*
  * GET /api/clinic/departments
@@ -107,7 +104,6 @@ router.get(
     }
   }
 )
-
 
 /*
  * POST /api/clinic/departments
@@ -135,7 +131,6 @@ router.post(
     }
   }
 )
-
 
 /*
  * PATCH /api/clinic/departments/:id
@@ -173,7 +168,6 @@ router.patch(
     }
   }
 )
-
 
 /*
  * POST /api/clinic/visits
@@ -284,7 +278,6 @@ router.post(
         })
       }
 
-
       /*
        * Resolve ticket.
        */
@@ -306,7 +299,6 @@ router.post(
         }
       }
 
-
       /*
        * Resolve department.
        *
@@ -318,7 +310,6 @@ router.post(
        */
       let departmentId =
         requestedDepartment
-
 
       /*
        * If the patient has a ticket,
@@ -341,7 +332,6 @@ router.post(
         }
       }
 
-
       /*
        * If an explicit department was supplied,
        * make sure it actually exists.
@@ -360,7 +350,6 @@ router.post(
           })
         }
       }
-
 
       /*
        * Prepare text for AI extraction.
@@ -394,7 +383,6 @@ router.post(
             : null,
       }
 
-
       /*
        * AI extraction.
        */
@@ -402,7 +390,6 @@ router.post(
         await extractIntake(
           aiInput
         )
-
 
       /*
        * Safe default when AI service
@@ -418,7 +405,6 @@ router.post(
 
       let extractedSymptoms =
         symptoms
-
 
       /*
        * Validate AI response before
@@ -482,7 +468,6 @@ router.post(
           extraction.symptoms
       }
 
-
       /*
        * Deterministic triage remains
        * independent from AI.
@@ -493,7 +478,6 @@ router.post(
             ' '
           )}`
         )
-
 
       /*
        * Create visit.
@@ -574,7 +558,6 @@ router.post(
           ],
         })
 
-
       /*
        * Return populated visit so the
        * frontend immediately receives
@@ -609,7 +592,6 @@ router.post(
   }
 )
 
-
 /*
  * GET /api/clinic/visits
  */
@@ -633,7 +615,6 @@ router.get(
         }
       }
 
-
       /*
        * Doctors see:
        *
@@ -645,11 +626,21 @@ router.get(
         req.user.role ===
         'doctor'
       ) {
+        console.log(
+          '[DOCTOR VISITS] Doctor:',
+          req.user._id
+        )
+
         const assignedQueues =
           await Queue.find({
             doctors:
               req.user._id,
-          }).select('_id')
+          }).select('_id name')
+
+        console.log(
+          '[DOCTOR VISITS] Assigned queues:',
+          assignedQueues
+        )
 
         const queueIds =
           assignedQueues.map(
@@ -657,19 +648,46 @@ router.get(
               queue._id
           )
 
+        const activeTicketIds =
+          await Ticket.find({
+            queue: {
+              $in: queueIds,
+            },
+            status: {
+              $in: ['waiting', 'serving'],
+            },
+          }).distinct('_id')
+
+        console.log(
+          '[DOCTOR VISITS] Queue IDs:',
+          queueIds
+        )
+
         const assignedDepartments =
           await Department.find({
             queue: {
               $in: queueIds,
             },
             isActive: true,
-          }).select('_id')
+          }).select(
+            '_id name queue'
+          )
+
+        console.log(
+          '[DOCTOR VISITS] Assigned departments:',
+          assignedDepartments
+        )
 
         const departmentIds =
           assignedDepartments.map(
             (department) =>
               department._id
           )
+
+        console.log(
+          '[DOCTOR VISITS] Department IDs:',
+          departmentIds
+        )
 
         filter = {
           $or: [
@@ -683,10 +701,19 @@ router.get(
                   departmentIds,
               },
             },
+            {
+              ticket: {
+                $in: activeTicketIds,
+              },
+            },
           ],
         }
-      }
 
+        console.log(
+          '[DOCTOR VISITS] Final filter:',
+          filter
+        )
+      }
 
       /*
        * Admin sees all visits.
@@ -724,7 +751,6 @@ router.get(
   }
 )
 
-
 /*
  * PATCH /api/clinic/visits/:id
  *
@@ -751,16 +777,12 @@ router.patch(
         })
       }
 
-
       /*
        * Doctors can only update
        * visits belonging to their
        * assigned department/queue.
        */
-      if (
-        req.user.role ===
-        'doctor'
-      ) {
+      if (req.user.role === 'doctor') {
         const department =
           existingVisit.department
             ? await Department.findById(
@@ -768,11 +790,24 @@ router.patch(
               ).select('queue')
             : null
 
+        const linkedTicket =
+          existingVisit.ticket
+            ? await Ticket.findById(
+                existingVisit.ticket
+              ).select('queue')
+            : null
+
+        const visitQueueIds = [
+          department?.queue,
+          linkedTicket?.queue,
+        ].filter(Boolean)
+
         const assignedQueue =
-          department?.queue
+          visitQueueIds.length
             ? await Queue.findOne({
-                _id:
-                  department.queue,
+                _id: {
+                  $in: visitQueueIds,
+                },
                 doctors:
                   req.user._id,
               }).select('_id')
@@ -792,7 +827,6 @@ router.patch(
           })
         }
       }
-
 
       const updates = {}
 
@@ -815,7 +849,6 @@ router.patch(
         updates.doctor =
           req.body.doctor
       }
-
 
       const visit =
         await Visit.findByIdAndUpdate(
@@ -857,7 +890,6 @@ router.patch(
     }
   }
 )
-
 
 /*
  * POST /api/clinic/appointments
@@ -919,6 +951,5 @@ router.post(
     }
   }
 )
-
 
 module.exports = router
