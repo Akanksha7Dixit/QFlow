@@ -37,8 +37,24 @@ export default function DoctorConsultation() {
           .filter(Boolean)
           .map(String)
       )
+      const visitPatientEmails = new Set(
+        visitRecords
+          .filter((visit) => ['intake', 'triaged', 'in-consultation'].includes(visit.status))
+          .map((visit) => visit.patient?.email?.trim().toLowerCase())
+          .filter(Boolean)
+      )
       const ticketRecords = queueTickets.flat()
-        .filter((ticket) => !linkedTicketIds.has(String(ticket._id)))
+        .filter((ticket) => {
+          const email = ticket.customer?.email?.trim().toLowerCase()
+          const linkedByPatient = email
+            && visitPatientEmails.has(email)
+            && visitRecords.some((visit) =>
+              visit.patient?.email?.trim().toLowerCase() === email
+              && ['intake', 'triaged', 'in-consultation'].includes(visit.status)
+            )
+
+          return !linkedTicketIds.has(String(ticket._id)) && !linkedByPatient
+        })
         .map((ticket) => ({
           ...ticket,
           recordType: 'ticket',
@@ -66,6 +82,17 @@ export default function DoctorConsultation() {
     const extraction = selected.aiExtraction
     setNotes((current) => current || `Reviewed ${extraction?.symptoms?.join(', ') || selected.intake?.chiefComplaint || 'presenting concern'}${extraction?.duration ? ` for ${extraction.duration}` : ''}. Clinical assessment and plan documented below.`)
   }
+
+  const chiefComplaint = selected?.intake?.chiefComplaint
+    || (selected?.recordType === 'ticket' ? 'Not provided at queue check-in' : selected?.intake?.originalText)
+    || 'Not provided'
+  const symptoms = selected?.intake?.symptoms?.length
+    ? selected.intake.symptoms.join(', ')
+    : selected?.aiExtraction?.symptoms?.join(', ') || 'Not provided'
+  const department = selected?.department?.name
+    || selected?.ticket?.queue?.name
+    || selected?.queueName
+    || 'Not assigned'
 
   const complete = async () => {
     if (!selected) return
@@ -124,8 +151,11 @@ export default function DoctorConsultation() {
                   <span className="badge badge-waiting">{selected.triage?.level || 'routine'}</span>
                 </div>
                 <div className="intake-summary">
+                  <p><strong>Chief complaint</strong>{chiefComplaint}</p>
+                  <p><strong>Symptoms</strong>{symptoms}</p>
+                  <p><strong>Duration</strong>{selected.intake?.duration || selected.aiExtraction?.duration || 'Not provided'}</p>
+                  <p><strong>Department</strong>{department}</p>
                   <p><strong>Original patient entry</strong>{selected.intake?.originalText || selected.intake?.chiefComplaint || 'Not provided'}</p>
-                  <p><strong>Structured symptoms</strong>{selected.intake?.symptoms?.join(', ') || 'Not provided'}</p>
                   <p><strong>History</strong>{selected.intake?.history || 'Not provided'}</p>
                   <p><strong>Safety rationale</strong>{selected.triage?.rationale || 'No rationale available'}</p>
                 </div>

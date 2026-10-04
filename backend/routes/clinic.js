@@ -6,6 +6,7 @@ const Department = require('../models/Department')
 const Visit = require('../models/Visit')
 const Queue = require('../models/Queue')
 const Ticket = require('../models/Ticket')
+const User = require('../models/User')
 
 const {
   protect,
@@ -568,8 +569,14 @@ router.post(
           visit._id
         )
           .populate(
-            'ticket',
-            'ticketNumber status position queue'
+            {
+              path: 'ticket',
+              select: 'ticketNumber status position queue',
+              populate: {
+                path: 'queue',
+                select: 'name category prefix',
+              },
+            }
           )
           .populate(
             'department',
@@ -648,7 +655,7 @@ router.get(
               queue._id
           )
 
-        const activeTicketIds =
+        const activeTickets =
           await Ticket.find({
             queue: {
               $in: queueIds,
@@ -656,7 +663,50 @@ router.get(
             status: {
               $in: ['waiting', 'serving'],
             },
-          }).distinct('_id')
+          }).select('_id customer.email createdAt')
+
+        const activeTicketIds = activeTickets.map(
+          (ticket) => ticket._id
+        )
+
+        const activePatientEmails = [
+          ...new Set(
+            activeTickets
+              .map((ticket) => ticket.customer?.email?.trim().toLowerCase())
+              .filter(Boolean)
+          ),
+        ]
+        const activePatients = activePatientEmails.length
+          ? await User.find({
+              email: {
+                $in: activePatientEmails,
+              },
+              role: 'patient',
+            }).select('_id email')
+          : []
+
+        const patientsByEmail = new Map(
+          activePatients.map((patient) => [
+            patient.email,
+            patient._id,
+          ])
+        )
+
+        const activePatientVisitFilters = activeTickets
+          .map((ticket) => {
+            const email = ticket.customer?.email?.trim().toLowerCase()
+            const patientId = email && patientsByEmail.get(email)
+
+            if (!patientId) return null
+
+            return {
+              patient: patientId,
+              status: {
+                $in: ['intake', 'triaged', 'in-consultation'],
+              },
+            }
+          })
+          .filter(Boolean)
 
         console.log(
           '[DOCTOR VISITS] Queue IDs:',
@@ -706,6 +756,7 @@ router.get(
                 $in: activeTicketIds,
               },
             },
+            ...activePatientVisitFilters,
           ],
         }
 
@@ -731,8 +782,14 @@ router.get(
             'name email'
           )
           .populate(
-            'ticket',
-            'ticketNumber status position queue'
+            {
+              path: 'ticket',
+              select: 'ticketNumber status position queue',
+              populate: {
+                path: 'queue',
+                select: 'name category prefix',
+              },
+            }
           )
           .populate(
             'department',
