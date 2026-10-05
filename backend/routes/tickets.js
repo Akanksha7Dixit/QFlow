@@ -8,6 +8,39 @@ const {
   doctorOrAdmin,
 } = require('../middleware/auth')
 
+const prioritySortStages = () => [
+  {
+    $addFields: {
+      _priorityOrder: {
+        $switch: {
+          branches: [
+            {
+              case: { $eq: ['$priorityLevel', 'emergency'] },
+              then: 0,
+            },
+            {
+              case: { $eq: ['$priorityLevel', 'urgent'] },
+              then: 1,
+            },
+            {
+              case: { $eq: ['$priorityLevel', 'soon'] },
+              then: 2,
+            },
+            {
+              case: { $eq: ['$priorityLevel', 'routine'] },
+              then: 3,
+            },
+          ],
+          default: {
+            $cond: [{ $eq: ['$priority', true] }, 1, 3],
+          },
+        },
+      },
+    },
+  },
+  { $sort: { _priorityOrder: 1, position: 1 } },
+]
+
 /*
  * Verify that the authenticated staff member
  * can operate a particular queue.
@@ -89,23 +122,25 @@ router.get(
       } = req.query
 
       const filter = {
-        queue: req.params.queueId,
+        queue: access.queue._id,
       }
 
       if (status) {
         filter.status = status
       }
 
-      const tickets =
-        await Ticket.find(filter)
-          .sort({
-            priority: -1,
-            position: 1,
-          })
-          .limit(
-            parseInt(limit, 10)
-          )
-          .lean()
+      const parsedLimit = Number.parseInt(limit, 10)
+      const ticketLimit =
+        Number.isInteger(parsedLimit) && parsedLimit > 0
+          ? parsedLimit
+          : 50
+
+      const tickets = await Ticket.aggregate([
+        { $match: filter },
+        ...prioritySortStages(),
+        { $limit: ticketLimit },
+        { $unset: '_priorityOrder' },
+      ])
 
       res.json(tickets)
     } catch (err) {
@@ -186,6 +221,7 @@ router.post(
            * as a patient-controlled queue privilege.
            */
           priority: false,
+          priorityLevel: 'routine',
 
           position:
             queue.ticketCounter,
@@ -267,18 +303,21 @@ router.post(
         }
       )
 
-      /*
-       * Priority tickets first,
-       * then normal queue position.
-       */
-      const next =
-        await Ticket.findOne({
-          queue: queue._id,
-          status: 'waiting',
-        }).sort({
-          priority: -1,
-          position: 1,
-        })
+      const [nextCandidate] = await Ticket.aggregate([
+        {
+          $match: {
+            queue: queue._id,
+            status: 'waiting',
+          },
+        },
+        ...prioritySortStages(),
+        { $limit: 1 },
+        { $project: { _id: 1 } },
+      ])
+
+      const next = nextCandidate
+        ? await Ticket.findById(nextCandidate._id)
+        : null
 
       if (!next) {
         return res.status(404).json({

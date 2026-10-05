@@ -13,6 +13,12 @@ const STATUS_COLORS = {
   cancelled: 'var(--red)',
   'no-show': 'var(--text-muted)',
 }
+const PRIORITY_ORDER = {
+  emergency: 0,
+  urgent: 1,
+  soon: 2,
+  routine: 3,
+}
 
 export default function QueueDetail() {
   const { id } = useParams()
@@ -23,7 +29,7 @@ export default function QueueDetail() {
   const [calling, setCalling] = useState(false)
   const [activeTab, setActiveTab] = useState('waiting')
   const [showJoinForm, setShowJoinForm] = useState(false)
-  const [joinForm, setJoinForm] = useState({ name: '', phone: '', priority: false })
+  const [joinForm, setJoinForm] = useState({ name: '', phone: '' })
   const [joining, setJoining] = useState(false)
 
   const fetchQueue = useCallback(async () => {
@@ -95,11 +101,10 @@ export default function QueueDetail() {
     try {
       const res = await axios.post(`/tickets/join/${id}`, {
         customer: { name: joinForm.name, phone: joinForm.phone },
-        priority: joinForm.priority,
       })
       toast.success(`ISSUED: ${res.data.ticket.ticketNumber} · Position #${res.data.position}`)
       setShowJoinForm(false)
-      setJoinForm({ name: '', phone: '', priority: false })
+      setJoinForm({ name: '', phone: '' })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to join queue')
     } finally {
@@ -107,7 +112,13 @@ export default function QueueDetail() {
     }
   }
 
-  const filteredTickets = tickets.filter(t => t.status === activeTab)
+  const priorityLevel = ticket => ticket.priorityLevel || (ticket.priority ? 'urgent' : 'routine')
+  const filteredTickets = tickets
+    .filter(t => t.status === activeTab)
+    .sort((a, b) => activeTab === 'waiting'
+      ? (PRIORITY_ORDER[priorityLevel(a)] ?? PRIORITY_ORDER.routine) -
+        (PRIORITY_ORDER[priorityLevel(b)] ?? PRIORITY_ORDER.routine) || a.position - b.position
+      : a.position - b.position)
   const waitingCount = tickets.filter(t => t.status === 'waiting').length
   const servingTicket = tickets.find(t => t.status === 'serving')
 
@@ -233,7 +244,7 @@ export default function QueueDetail() {
                   textShadow:'var(--glow-md)',
                   letterSpacing:'0.2em',
                 }}>
-                  {servingTicket.ticketNumber}
+                  {servingTicket.ticketNumber} — {priorityLevel(servingTicket).toUpperCase()}
                 </div>
               </div>
               {servingTicket.customer?.name && servingTicket.customer.name !== 'Anonymous' && (
@@ -327,7 +338,7 @@ export default function QueueDetail() {
                       minWidth:'80px',
                       letterSpacing:'0.1em',
                     }}>
-                      {ticket.ticketNumber}
+                      {ticket.ticketNumber} — {priorityLevel(ticket).toUpperCase()}
                     </div>
 
                     {/* Customer info */}
@@ -469,24 +480,6 @@ export default function QueueDetail() {
                   onChange={e => setJoinForm({...joinForm, phone: e.target.value})}
                 />
               </div>
-              <label style={{
-                display:'flex', alignItems:'center', gap:'10px',
-                fontFamily:'var(--font-mono)', fontSize:'11px',
-                color:'var(--amber)', cursor:'pointer',
-                padding:'10px',
-                background: joinForm.priority ? 'var(--amber-dim)' : 'transparent',
-                border:'1px solid',
-                borderColor: joinForm.priority ? 'rgba(255,184,0,0.4)' : 'var(--border)',
-                transition:'var(--transition)',
-              }}>
-                <input
-                  type="checkbox"
-                  checked={joinForm.priority}
-                  onChange={e => setJoinForm({...joinForm, priority: e.target.checked})}
-                  style={{ accentColor:'var(--amber)', width:14, height:14 }}
-                />
-                PRIORITY TICKET
-              </label>
               <div style={{ display:'flex', gap:'8px', marginTop:'4px' }}>
                 <button type="button" onClick={() => setShowJoinForm(false)} className="btn btn-ghost btn-full">
                   CANCEL

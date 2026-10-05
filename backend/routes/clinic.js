@@ -229,7 +229,7 @@ router.post(
        */
       if (
         typeof chiefComplaint !==
-          'string' ||
+        'string' ||
         chiefComplaint.length > 2000
       ) {
         return res.status(400).json({
@@ -240,7 +240,7 @@ router.post(
 
       if (
         typeof naturalLanguage !==
-          'string' ||
+        'string' ||
         naturalLanguage.length > 5000
       ) {
         return res.status(400).json({
@@ -255,7 +255,7 @@ router.post(
         symptoms.some(
           (item) =>
             typeof item !==
-              'string' ||
+            'string' ||
             item.length > 160
         )
       ) {
@@ -267,10 +267,10 @@ router.post(
 
       if (
         typeof duration !==
-          'string' ||
+        'string' ||
         duration.length > 200 ||
         typeof history !==
-          'string' ||
+        'string' ||
         history.length > 2000
       ) {
         return res.status(400).json({
@@ -480,6 +480,17 @@ router.post(
           )}`
         )
 
+      if (ticket) {
+        ticket.priorityLevel = triage.level
+        await ticket.save()
+
+        if (ticket.queue?._id) {
+          req.io
+            .to(`queue:${ticket.queue._id}`)
+            .emit('ticket-updated', ticket)
+        }
+      }
+
       /*
        * Create visit.
        */
@@ -537,24 +548,24 @@ router.post(
 
             ...(ticket
               ? [
-                  {
-                    action:
-                      'ticket-linked',
-                    actor:
-                      req.user._id,
-                  },
-                ]
+                {
+                  action:
+                    'ticket-linked',
+                  actor:
+                    req.user._id,
+                },
+              ]
               : []),
 
             ...(departmentId
               ? [
-                  {
-                    action:
-                      'department-routed',
-                    actor:
-                      req.user._id,
-                  },
-                ]
+                {
+                  action:
+                    'department-routed',
+                  actor:
+                    req.user._id,
+                },
+              ]
               : []),
           ],
         })
@@ -571,7 +582,7 @@ router.post(
           .populate(
             {
               path: 'ticket',
-              select: 'ticketNumber status position queue',
+              select: 'ticketNumber status position priorityLevel queue',
               populate: {
                 path: 'queue',
                 select: 'name category prefix',
@@ -678,11 +689,11 @@ router.get(
         ]
         const activePatients = activePatientEmails.length
           ? await User.find({
-              email: {
-                $in: activePatientEmails,
-              },
-              role: 'patient',
-            }).select('_id email')
+            email: {
+              $in: activePatientEmails,
+            },
+            role: 'patient',
+          }).select('_id email')
           : []
 
         const patientsByEmail = new Map(
@@ -738,22 +749,40 @@ router.get(
           '[DOCTOR VISITS] Department IDs:',
           departmentIds
         )
-
         filter = {
           $or: [
             {
-              doctor:
-                req.user._id,
+              doctor: req.user._id,
+              status: {
+                $in: [
+                  'intake',
+                  'triaged',
+                  'in-consultation',
+                ],
+              },
             },
             {
               department: {
-                $in:
-                  departmentIds,
+                $in: departmentIds,
+              },
+              status: {
+                $in: [
+                  'intake',
+                  'triaged',
+                  'in-consultation',
+                ],
               },
             },
             {
               ticket: {
                 $in: activeTicketIds,
+              },
+              status: {
+                $in: [
+                  'intake',
+                  'triaged',
+                  'in-consultation',
+                ],
               },
             },
             ...activePatientVisitFilters,
@@ -843,15 +872,15 @@ router.patch(
         const department =
           existingVisit.department
             ? await Department.findById(
-                existingVisit.department
-              ).select('queue')
+              existingVisit.department
+            ).select('queue')
             : null
 
         const linkedTicket =
           existingVisit.ticket
             ? await Ticket.findById(
-                existingVisit.ticket
-              ).select('queue')
+              existingVisit.ticket
+            ).select('queue')
             : null
 
         const visitQueueIds = [
@@ -862,12 +891,12 @@ router.patch(
         const assignedQueue =
           visitQueueIds.length
             ? await Queue.findOne({
-                _id: {
-                  $in: visitQueueIds,
-                },
-                doctors:
-                  req.user._id,
-              }).select('_id')
+              _id: {
+                $in: visitQueueIds,
+              },
+              doctors:
+                req.user._id,
+            }).select('_id')
             : null
 
         const directlyAssigned =
@@ -931,7 +960,7 @@ router.patch(
             'name email'
           )
 
-          
+
           .populate(
             'doctor',
             'name email'
@@ -974,7 +1003,7 @@ router.post(
         await Visit.create({
           patient:
             req.user.role ===
-            'patient'
+              'patient'
               ? req.user._id
               : req.body.patient,
 

@@ -15,6 +15,11 @@ const ticketSchema = new mongoose.Schema(
       default: 'waiting',
     },
     priority: { type: Boolean, default: false },
+    priorityLevel: {
+      type: String,
+      enum: ['routine', 'soon', 'urgent', 'emergency'],
+      default: 'routine',
+    },
     position: { type: Number, required: true },
     servedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     notes: { type: String, default: '' },
