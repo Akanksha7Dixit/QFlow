@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import Layout from '../components/Layout'
 import StatCard from '../components/StatCard'
 import { ArrowRight, CheckCircle2, Clock3, Stethoscope } from 'lucide-react'
+import { useSocket } from '../context/SocketContext'
 
 const PRIORITY_COLORS = {
   emergency: 'var(--red)',
@@ -19,10 +20,13 @@ const PRIORITY_ORDER = {
 }
 
 export default function DoctorDashboard() {
+  const { joinQueue, leaveQueue, on, off } = useSocket()
   const [queues, setQueues] = useState([])
   const [tickets, setTickets] = useState([])
   const [selectedQueue, setSelectedQueue] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [ticketsLoading, setTicketsLoading] = useState(false)
+  const ticketRequestRef = useRef(0)
 
   const loadQueues = async () => {
     try {
@@ -36,18 +40,83 @@ export default function DoctorDashboard() {
     }
   }
 
-  const loadTickets = async (queue) => {
+  const loadTickets = useCallback(async (queue) => {
     if (!queue) return
+    const requestId = ++ticketRequestRef.current
+    setTicketsLoading(true)
+
     try {
-      const response = await axios.get(`/tickets/queue/${queue._id}`)
-      setTickets(response.data)
+      const response = await axios.get(
+        `/tickets/queue/${queue._id}?status=waiting,serving&limit=500`
+      )
+      if (requestId === ticketRequestRef.current) {
+        setTickets(response.data)
+        setQueues((current) => current.map((item) =>
+          item._id === queue._id
+            ? {
+              ...item,
+              waitingCount: response.data.filter(
+                (ticket) => ticket.status === 'waiting'
+              ).length,
+              servingCount: response.data.filter(
+                (ticket) => ticket.status === 'serving'
+              ).length,
+            }
+            : item
+        ))
+      }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Unable to load waiting patients')
+      if (requestId === ticketRequestRef.current) {
+        setTickets([])
+        toast.error(error.response?.data?.message || 'Unable to load waiting patients')
+      }
+    } finally {
+      if (requestId === ticketRequestRef.current) {
+        setTicketsLoading(false)
+      }
     }
-  }
+  }, [])
 
   useEffect(() => { loadQueues() }, [])
-  useEffect(() => { loadTickets(selectedQueue) }, [selectedQueue])
+  useEffect(() => {
+    setTickets([])
+    loadTickets(selectedQueue)
+  }, [loadTickets, selectedQueue])
+
+  useEffect(() => {
+    if (!selectedQueue) return undefined
+
+    const queueId = selectedQueue._id
+    joinQueue(queueId)
+
+    const upsertTicket = (ticket) => {
+      setTickets((current) => {
+        const exists = current.some((item) => item._id === ticket._id)
+        return exists
+          ? current.map((item) => item._id === ticket._id ? ticket : item)
+          : [...current, ticket]
+      })
+    }
+
+    const handleTicketCalled = ({ ticket }) => {
+      setTickets((current) =>
+        current.map((item) => item._id === ticket._id ? ticket : item)
+      )
+    }
+
+    const handleTicketJoined = ({ ticket }) => upsertTicket(ticket)
+
+    on('ticket-joined', handleTicketJoined)
+    on('ticket-updated', upsertTicket)
+    on('ticket-called', handleTicketCalled)
+
+    return () => {
+      off('ticket-joined', handleTicketJoined)
+      off('ticket-updated', upsertTicket)
+      off('ticket-called', handleTicketCalled)
+      leaveQueue(queueId)
+    }
+  }, [selectedQueue?._id, joinQueue, leaveQueue, on, off])
 
   const callNext = async () => {
     if (!selectedQueue) return
@@ -70,7 +139,8 @@ export default function DoctorDashboard() {
     }
   }
 
-  const serving = tickets.find((ticket) => ticket.status === 'serving')
+  const servingTickets = tickets.filter((ticket) => ticket.status === 'serving')
+  const serving = servingTickets[0]
   const waiting = tickets
     .filter((ticket) => ticket.status === 'waiting')
     .sort((a, b) => {
@@ -107,17 +177,21 @@ export default function DoctorDashboard() {
             {loading ? <div className="spinner" /> : queues.length === 0 ? <p className="text-muted">No queues assigned yet.</p> : queues.map((queue) => (
               <button key={queue._id} className={`queue-select ${selectedQueue?._id === queue._id ? 'is-selected' : ''}`} onClick={() => setSelectedQueue(queue)}>
                 <span><strong>{queue.name}</strong><small>{queue.category} / {queue.prefix}</small></span>
-                <span className="mono text-amber">{queue.waitingCount || 0} waiting</span>
+                <span className="mono text-amber">
+                  {(queue._id === selectedQueue?._id
+                    ? waiting.length
+                    : queue.waitingCount) || 0} waiting
+                </span>
               </button>
             ))}
           </section>
 
           <section className="card clinic-panel clinic-queue-panel">
             <div className="panel-heading"><span>{selectedQueue?.name || 'PATIENT QUEUE'}</span><span className="badge badge-open">LIVE</span></div>
-            {serving && <div className="current-patient"><div><span className="mono text-muted">NOW IN CONSULTATION</span><strong>{serving.ticketNumber} — {priorityLabel(serving)}</strong></div><button className="btn btn-success" onClick={() => finishVisit(serving)}><CheckCircle2 size={15} /> COMPLETE VISIT</button></div>}
-            <div className="next-action"><div><span className="mono text-muted">NEXT PATIENT</span><h2>{waiting[0] ? `${waiting[0].ticketNumber} — ${priorityLabel(waiting[0])}` : 'QUEUE CLEAR'}</h2></div><button className="btn btn-primary btn-lg" onClick={callNext} disabled={!waiting.length}><ArrowRight size={16} /> CALL NEXT</button></div>
+            {servingTickets.map((ticket) => <div className="current-patient" key={ticket._id}><div><span className="mono text-muted">NOW IN CONSULTATION</span><strong>{ticket.ticketNumber} — {priorityLabel(ticket)}</strong></div><button className="btn btn-success" onClick={() => finishVisit(ticket)}><CheckCircle2 size={15} /> COMPLETE VISIT</button></div>)}
+            <div className="next-action"><div><span className="mono text-muted">NEXT PATIENT</span><h2>{ticketsLoading ? 'LOADING QUEUE...' : waiting[0] ? `${waiting[0].ticketNumber} — ${priorityLabel(waiting[0])}` : 'QUEUE CLEAR'}</h2></div><button className="btn btn-primary btn-lg" onClick={callNext} disabled={ticketsLoading || !waiting.length}><ArrowRight size={16} /> CALL NEXT</button></div>
             <div className="panel-heading"><span>WAITING ROOM</span><span className="mono text-muted">{waiting.length} PATIENTS</span></div>
-            {waiting.length === 0 ? <p className="text-muted">No patients are waiting in this queue.</p> : waiting.map((ticket, index) => {
+            {ticketsLoading ? <p className="text-muted">Loading active patients...</p> : waiting.length === 0 ? <p className="text-muted">No patients are waiting in this queue.</p> : waiting.map((ticket, index) => {
               const level = (ticket.priorityLevel || (ticket.priority ? 'urgent' : 'routine')).toLowerCase()
               return <div className="patient-row" key={ticket._id}><span className="queue-position">{String(index + 1).padStart(2, '0')}</span><strong>{ticket.ticketNumber} — <span style={{ color: PRIORITY_COLORS[level] || PRIORITY_COLORS.routine }}>{priorityLabel(ticket)}</span></strong><span className="text-secondary">{ticket.customer?.name || 'Walk-in patient'}</span><span className="mono text-muted"><Clock3 size={13} /> {ticket.estimatedWait || 0} min</span></div>
             })}

@@ -2,11 +2,25 @@ const router = require('express').Router()
 
 const Queue = require('../models/Queue')
 const Ticket = require('../models/Ticket')
+const Visit = require('../models/Visit')
 
 const {
   protect,
   doctorOrAdmin,
 } = require('../middleware/auth')
+
+const getPriorityRank = (ticket) => {
+  const priorityLevel =
+    ticket.priorityLevel ||
+    (ticket.priority ? 'urgent' : 'routine')
+
+  return {
+    emergency: 0,
+    urgent: 1,
+    soon: 2,
+    routine: 3,
+  }[priorityLevel] ?? 3
+}
 
 const prioritySortStages = () => [
   {
@@ -126,7 +140,28 @@ router.get(
       }
 
       if (status) {
-        filter.status = status
+        const statuses = status.split(',')
+        const validStatuses = [
+          'waiting',
+          'serving',
+          'completed',
+          'cancelled',
+          'no-show',
+        ]
+
+        if (
+          statuses.some(
+            (value) => !validStatuses.includes(value)
+          )
+        ) {
+          return res.status(400).json({
+            message: 'Invalid ticket status filter',
+          })
+        }
+
+        filter.status = statuses.length === 1
+          ? statuses[0]
+          : { $in: statuses }
       }
 
       const parsedLimit = Number.parseInt(limit, 10)
@@ -135,12 +170,15 @@ router.get(
           ? parsedLimit
           : 50
 
-      const tickets = await Ticket.aggregate([
-        { $match: filter },
-        ...prioritySortStages(),
-        { $limit: ticketLimit },
-        { $unset: '_priorityOrder' },
-      ])
+      const tickets = await Ticket.find(filter)
+        .sort({ position: 1 })
+        .limit(ticketLimit)
+        .lean()
+
+      tickets.sort((a, b) =>
+        getPriorityRank(a) - getPriorityRank(b) ||
+        a.position - b.position
+      )
 
       res.json(tickets)
     } catch (err) {
@@ -288,20 +326,17 @@ router.post(
 
       const queue = access.queue
 
-      /*
-       * Complete currently serving ticket.
-       */
-      await Ticket.updateMany(
-        {
-          queue: queue._id,
-          status: 'serving',
-        },
+      const servingTicket = await Ticket.exists({
+        queue: queue._id,
+        status: 'serving',
+      })
 
-        {
-          status: 'completed',
-          completedAt: new Date(),
-        }
-      )
+      if (servingTicket) {
+        return res.status(409).json({
+          message:
+            'Complete the currently serving ticket before calling the next patient',
+        })
+      }
 
       const [nextCandidate] = await Ticket.aggregate([
         {
@@ -402,6 +437,22 @@ router.put(
         })
       }
 
+      if (status === 'serving') {
+        const anotherServingTicket =
+          await Ticket.exists({
+            _id: { $ne: ticket._id },
+            queue: ticket.queue._id,
+            status: 'serving',
+          })
+
+        if (anotherServingTicket) {
+          return res.status(409).json({
+            message:
+              'Another ticket is already being served in this queue',
+          })
+        }
+      }
+
       if (status) {
         ticket.status = status
       }
@@ -436,6 +487,30 @@ router.put(
       }
 
       await ticket.save()
+
+      if (
+        ['completed', 'cancelled'].includes(ticket.status)
+      ) {
+        await Visit.updateMany(
+          {
+            ticket: ticket._id,
+            status: {
+              $in: ['intake', 'triaged', 'in-consultation'],
+            },
+          },
+          {
+            $set: {
+              status: ticket.status,
+            },
+            $push: {
+              audit: {
+                action: `ticket-${ticket.status}`,
+                actor: req.user._id,
+              },
+            },
+          }
+        )
+      }
 
       req.io
         .to(

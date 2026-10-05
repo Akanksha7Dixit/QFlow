@@ -159,6 +159,19 @@ export default function PatientCare() {
 
       setLastExtraction(response.data.aiExtraction)
 
+      if (response.data.ticket) {
+        const updatedTicket = {
+          ...activeTicket,
+          ...response.data.ticket,
+        }
+        localStorage.setItem(
+          'qf_patient_ticket',
+          JSON.stringify(updatedTicket)
+        )
+      } else {
+        localStorage.removeItem('qf_patient_ticket')
+      }
+
       setNotice(
         response.data.aiExtraction?.status === 'complete'
           ? 'Intake understood and routed'

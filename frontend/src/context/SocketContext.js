@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 
 const SocketContext = createContext()
@@ -15,10 +15,22 @@ export function SocketProvider({ children }) {
     return () => socketRef.current?.disconnect()
   }, [])
 
-  const joinQueue = (queueId) => socketRef.current?.emit('join-queue', queueId)
-  const leaveQueue = (queueId) => socketRef.current?.emit('leave-queue', queueId)
-  const on = (event, handler) => socketRef.current?.on(event, handler)
-  const off = (event, handler) => socketRef.current?.off(event, handler)
+  const joinQueue = useCallback(
+    (queueId) => socketRef.current?.emit('join-queue', queueId),
+    []
+  )
+  const leaveQueue = useCallback(
+    (queueId) => socketRef.current?.emit('leave-queue', queueId),
+    []
+  )
+  const on = useCallback(
+    (event, handler) => socketRef.current?.on(event, handler),
+    []
+  )
+  const off = useCallback(
+    (event, handler) => socketRef.current?.off(event, handler),
+    []
+  )
 
   return (
     <SocketContext.Provider value={{ socket: socketRef.current, connected, joinQueue, leaveQueue, on, off }}>

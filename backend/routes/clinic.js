@@ -81,6 +81,11 @@ const normalizeObjectId = (value) => {
   return value
 }
 
+const normalizeEmail = (value) =>
+  typeof value === 'string'
+    ? value.trim().toLowerCase()
+    : ''
+
 /*
  * GET /api/clinic/departments
  */
@@ -284,20 +289,54 @@ router.post(
        */
       let ticket = null
 
+      const patientEmail =
+        normalizeEmail(req.user.email)
+
       if (requestedTicket) {
-        ticket =
+        const requested =
           await Ticket.findById(
             requestedTicket
           ).populate(
             'queue'
           )
 
-        if (!ticket) {
-          return res.status(404).json({
-            message:
-              'Ticket not found',
-          })
+        if (
+          requested &&
+          ['waiting', 'serving'].includes(
+            requested.status
+          ) &&
+          patientEmail &&
+          normalizeEmail(requested.customer?.email) ===
+            patientEmail
+        ) {
+          ticket = requested
         }
+      }
+
+      /*
+       * Browser-stored ticket IDs can become stale when a patient
+       * checks in again or changes accounts on a shared device.
+       * Resolve the current ticket from the authenticated identity
+       * rather than linking or updating another patient's ticket.
+       */
+      if (!ticket && patientEmail) {
+        ticket = await Ticket.findOne({
+          status: {
+            $in: ['waiting', 'serving'],
+          },
+          $expr: {
+            $eq: [
+              {
+                $toLower: {
+                  $ifNull: ['$customer.email', ''],
+                },
+              },
+              patientEmail,
+            ],
+          },
+        })
+          .sort({ createdAt: -1 })
+          .populate('queue')
       }
 
       /*
@@ -813,7 +852,7 @@ router.get(
           .populate(
             {
               path: 'ticket',
-              select: 'ticketNumber status position queue',
+              select: 'ticketNumber status position priorityLevel queue',
               populate: {
                 path: 'queue',
                 select: 'name category prefix',
@@ -969,6 +1008,38 @@ router.patch(
             'department',
             'name code'
           )
+
+      if (
+        ['completed', 'cancelled'].includes(visit.status) &&
+        visit.ticket
+      ) {
+        const linkedTicket =
+          await Ticket.findById(
+            visit.ticket
+          ).populate('queue')
+
+        if (
+          linkedTicket &&
+          ['waiting', 'serving'].includes(
+            linkedTicket.status
+          )
+        ) {
+          linkedTicket.status =
+            visit.status === 'completed'
+              ? 'completed'
+              : 'cancelled'
+
+          if (linkedTicket.status === 'completed') {
+            linkedTicket.completedAt = new Date()
+          }
+
+          await linkedTicket.save()
+
+          req.io
+            .to(`queue:${linkedTicket.queue._id}`)
+            .emit('ticket-updated', linkedTicket)
+        }
+      }
 
       res.json(visit)
     } catch (err) {

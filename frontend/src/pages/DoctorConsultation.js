@@ -111,17 +111,13 @@ export default function DoctorConsultation() {
       const queueTickets = await Promise.all(
         queueResponse.data.map(async (queue) => {
           const response = await axios.get(
-            `/tickets/queue/${queue._id}`
+            `/tickets/queue/${queue._id}?status=waiting,serving&limit=100`
           )
 
-          return response.data
-            .filter((ticket) =>
-              ['waiting', 'serving'].includes(ticket.status)
-            )
-            .map((ticket) => ({
-              ...ticket,
-              queueName: queue.name,
-            }))
+          return response.data.map((ticket) => ({
+            ...ticket,
+            queueName: queue.name,
+          }))
         })
       )
 
@@ -178,7 +174,9 @@ export default function DoctorConsultation() {
             originalText: `Queue check-in for ${ticket.ticketNumber}`,
           },
           triage: {
-            level: 'routine',
+            level:
+              ticket.priorityLevel ||
+              (ticket.priority ? 'urgent' : 'routine'),
           },
           consultation: ticket.consultation,
         }))
